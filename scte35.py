@@ -57,8 +57,6 @@ class MPEG_Time(int):
 
 class SCTE35_Parser(object):
   def parse(self, input_bytes):
-    print("---> parse")
-
     input_bitarray = bitstring.BitString(bytes=input_bytes)
 
     table_id = input_bitarray.read("uint:8")
@@ -103,8 +101,6 @@ class SCTE35_Parser(object):
     return splice_info_section
 
   def __parse_splice_time(self, bitarray):
-    print("---> parse_splice_time")
-
     splice_time = {}
     splice_time["time_specified_flag"] = bitarray.read("bool")
 
@@ -118,8 +114,6 @@ class SCTE35_Parser(object):
     return splice_time
 
   def __parse_break_duration(self, bitarray):
-    print("---> parse_break_duration")
-
     break_duration = {}
     break_duration["auto_return"] = bitarray.read("bool")
     bitarray.pos += 6
@@ -127,8 +121,6 @@ class SCTE35_Parser(object):
     return break_duration
 
   def __parse_splice_insert(self, bitarray):
-    print("---> parse_splice_insert")
-
     splice_event_id = bitarray.read("uint:32")
     ssi = {}
 
@@ -173,8 +165,6 @@ class SCTE35_Parser(object):
       return ssi
 
   def __parse_time_signal(self, bitarray):
-    print("---> parse_time_signal")
-
     ssi = {}
 
     ssi["splice_time"] = self.__parse_splice_time(bitarray)
@@ -183,8 +173,11 @@ class SCTE35_Parser(object):
   def __parse_segmentation_descriptor(self, bitarray, tag, length):
     segmentation_descriptor = {}
 
-    segmentation_descriptor["segmentation_descriptor_tag"] = tag
+    segmentation_descriptor["splice_descriptor_tag"] = tag
     segmentation_descriptor["descriptor_length"] = length
+
+    if (bitarray.pos + 32) > bitarray.len:
+      return {}
 
     segmentation_descriptor["identifier"] = bitarray.read("uint:32")
 
@@ -246,51 +239,50 @@ class SCTE35_Parser(object):
     return segmentation_descriptor
 
   def __parse_segmentation_upid(self, bitarray, upid_type, length):
-    # Deprecated
-    if upid_type in [1, 2, 5]:
-      raise Exception("Deprecated upid_type: %d" % upid_type)
-
     return bitarray.read(length * 8).hex
 
 
   def __parse_splice_descriptors(self, bitarray, length):
-    print("---> parse_splice_descriptors")
-
-
     results = []
 
     while length:
       splice_descriptor_tag = bitarray.read("uint:8")
-      descriptor_length = bitarray.read("uint:8")
 
-      length -= descriptor_length + 2
+      if bitarray.pos == bitarray.len:
+        splice_descriptor = {
+          "splice_descriptor_tag": splice_descriptor_tag,
+          "descriptor_length": 0
+        }
 
-      if splice_descriptor_tag == SpliceDescriptor.SEGMENTATION_DESCRIPTOR:
-        splice_descriptor = self.__parse_segmentation_descriptor(bitarray, splice_descriptor_tag, descriptor_length)
+        length = 0
       else:
-        raise Exception("Invalid or unsupported splice_descriptor: %d" % splice_descriptor_tag)
+        descriptor_length = bitarray.read("uint:8")
+
+        length -= descriptor_length + 2
+
+        if splice_descriptor_tag == SpliceDescriptor.SEGMENTATION_DESCRIPTOR:
+          splice_descriptor = self.__parse_segmentation_descriptor(bitarray, splice_descriptor_tag, descriptor_length)
+        else:
+          splice_descriptor = {
+            "splice_descriptor_tag": splice_descriptor_tag,
+            "descriptor_length": descriptor_length
+          }
 
       results.append(splice_descriptor)
     return results
 
 if __name__ == "__main__":
   import base64
-  import argparse
   import json
 
-  description = """ Parse SCTE-35 markers from Base64 Strings.
-Example String: "/DAlAAAAAAAAAP/wFAUAAAABf+/+LRQrAP4BI9MIAAEBAQAAfxV6SQ==" """
+  scte_strings = sys.argv[1:]
 
-  parser = argparse.ArgumentParser(description=description)
-  parser.add_argument('base64_scte35', metavar='SCTE35_Marker',
-           help='Base64 encoded SCTE-35 marker')
+  for scte_string in scte_strings:
+    try:
+      input_bytes = base64.standard_b64decode(scte_string)
+      splice_info_section = SCTE35_Parser().parse(input_bytes)
 
-  args = parser.parse_args()
-
-  input_bytes = base64.standard_b64decode(args.base64_scte35)
-
-  splice_info_section = SCTE35_Parser().parse(input_bytes)
-
-  print("Parsing Complete")
-
-  print(json.dumps(splice_info_section, indent=2))
+      print("Parsing Complete")
+      print(json.dumps(splice_info_section, indent=2))
+    except Exception as err:
+      print(err)
