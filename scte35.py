@@ -29,9 +29,44 @@ THE SOFTWARE.
 '''
 
 
-import bitstring
 from datetime import timedelta
 from enum import IntEnum
+import bitstring
+import base64
+import json
+import sys
+import binascii
+
+SEGMENTATION_TYPE_IDS = {
+  "00": "Not Indicated",
+  "01": "Content Identification",
+  "10": "Program Start",
+  "11": "Program End",
+  "12": "Program Early Termination",
+  "13": "Program Breakaway",
+  "14": "Program Resumption",
+  "15": "Program Runover Planned",
+  "16": "Program Runover Unplanned",
+  "17": "Program Overlap Start",
+  "18": "Program Blackout Override",
+  "19": "Program Start – In Progress",
+  "20": "Chapter Start",
+  "21": "Chapter End",
+  "22": "Break Start",
+  "23": "Break End",
+  "30": "Provider Advertisement Start",
+  "31": "Provider Advertisement End",
+  "32": "Distributor Advertisement Start",
+  "33": "Distributor Advertisement End",
+  "34": "Provider Placement Opportunity Start",
+  "35": "Provider Placement Opportunity End",
+  "36": "Distributor Placement Opportunity Start",
+  "37": "Distributor Placement Opportunity End",
+  "40": "Unscheduled Event Start",
+  "41": "Unscheduled Event End",
+  "50": "Network Start",
+  "51": "Network End"
+}
 
 class SpliceDescriptor(IntEnum):
   AVAIL_DESCRIPTOR = 0
@@ -94,9 +129,12 @@ class SCTE35_Parser(object):
     splice_info_section["splice_descriptors"] = None
 
     if splice_info_section["splice_descriptor_loop_length"] > 0:
-      splice_info_section["splice_descriptors"] = (
-       self.__parse_splice_descriptors(input_bitarray,
-                       splice_info_section["splice_descriptor_loop_length"]))
+      try:
+        splice_info_section["splice_descriptors"] = (
+         self.__parse_splice_descriptors(input_bitarray,
+                         splice_info_section["splice_descriptor_loop_length"]))
+      except Exception as err:
+        print(err)
 
     return splice_info_section
 
@@ -176,9 +214,6 @@ class SCTE35_Parser(object):
     segmentation_descriptor["splice_descriptor_tag"] = tag
     segmentation_descriptor["descriptor_length"] = length
 
-    if (bitarray.pos + 32) > bitarray.len:
-      return {}
-
     segmentation_descriptor["identifier"] = bitarray.read("uint:32")
 
     descriptor_data_length = segmentation_descriptor["descriptor_length"] - 4
@@ -236,6 +271,9 @@ class SCTE35_Parser(object):
         segmentation_descriptor["sub_segment_num"] = bitarray.read("uint:8")
         segmentation_descriptor["sub_segments_expected"] = bitarray.read("uint:8")
 
+      if segmentation_descriptor["segmentation_type_id"] in SEGMENTATION_TYPE_IDS:
+        segmentation_descriptor["segmentation_type_id"] = SEGMENTATION_TYPE_IDS[segmentation_descriptor["segmentation_type_id"]]
+
     return segmentation_descriptor
 
   def __parse_segmentation_upid(self, bitarray, upid_type, length):
@@ -272,9 +310,6 @@ class SCTE35_Parser(object):
     return results
 
 if __name__ == "__main__":
-  import base64
-  import json
-
   scte_strings = sys.argv[1:]
 
   for scte_string in scte_strings:
